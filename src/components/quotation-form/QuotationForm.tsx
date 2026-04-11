@@ -240,9 +240,19 @@ export default function QuotationForm() {
       const q = query(collection(db, 'users', uid, 'quotations'))
       const snapshot = await getDocs(q)
       const data = snapshot.docs.map(doc => doc.data())
-      console.log('Quotations loaded:', data)
-      alert(`Đã tìm thấy ${data.length} báo giá trên Cloud. (Tính năng hiển thị UI đang hoàn thiện)`)
-      // TODO: integrate loaded data into UI as needed
+      
+      const cloudTemplates = data.map(doc => ({
+        name: `[Cloud] ${doc.customer || 'Khách lẻ'} - ${new Date(doc.createdAt).toLocaleDateString('vi-VN')}`,
+        items: doc.items
+      }))
+      
+      // Combine with local templates, avoiding duplicates on multiple clicks
+      setTemplates(prev => {
+        const localTemplates = prev.filter(t => !t.name.startsWith('[Cloud]'))
+        return [...localTemplates, ...cloudTemplates]
+      })
+      
+      alert(`Đã tải thành công ${data.length} báo giá! Vui lòng bấm vào "Tải mẫu" để xem.`)
     } catch (e) {
       console.error(e)
       alert('Lỗi tải báo giá từ Firestore.')
