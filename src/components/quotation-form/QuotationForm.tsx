@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog"
 import * as XLSX from 'xlsx'
 import { jsPDF } from 'jspdf'
-import 'jspdf-autotable'
+import autoTable from 'jspdf-autotable'
 import { Pencil, Trash2, Plus, FileSpreadsheet, FileText, Printer, Save, FolderOpen, ClipboardList } from 'lucide-react'
 import { auth, db } from '@/firebase/firebaseConfig'
 import { onAuthStateChanged } from 'firebase/auth'
@@ -219,7 +219,7 @@ export default function QuotationForm() {
       toast.error('Chưa có hạng mục nào để lưu.')
       return
     }
-    const customer = window.prompt('Nhập tên khách hàng:') || 'Khách lẻ'
+    const customer = templateName.trim() || 'Khách lẻ'
     const payload = {
       customer,
       total: items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0),
@@ -356,11 +356,9 @@ export default function QuotationForm() {
     }
     const loadingId = toast.loading('Đang tạo file PDF...')
     try {
-      // @ts-ignore
       const doc = new jsPDF()
       doc.text(pageTitle, 105, 20, { align: 'center' })
-      // @ts-ignore
-      doc.autoTable({
+      autoTable(doc, {
         startY: 30,
         head: [['STT', 'Mo ta', 'SL', 'DVT', 'Don gia', 'Thanh tien']],
         body: items.map(item => [
