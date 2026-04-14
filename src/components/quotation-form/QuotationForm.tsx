@@ -6,15 +6,15 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog"
-// Note: Select is used in reference but maybe not needed for basic port, adding it anyway
 import * as XLSX from 'xlsx'
 import { jsPDF } from 'jspdf'
 import 'jspdf-autotable'
-import { Pencil, Trash2, Plus, FileSpreadsheet, FileText, Printer, Save, FolderOpen } from 'lucide-react'
+import { Pencil, Trash2, Plus, FileSpreadsheet, FileText, Printer, Save, FolderOpen, ClipboardList } from 'lucide-react'
 import { auth, db } from '@/firebase/firebaseConfig'
 import { onAuthStateChanged } from 'firebase/auth'
 import { collection, addDoc, getDocs, query } from 'firebase/firestore'
 import FirebaseAuthButton from '@/components/quotation-form/FirebaseAuthButton'
+import { toast, ToastContainer } from '@/components/quotation-form/Toast'
 
 // Types
 type QuotationItem = {
@@ -212,30 +212,39 @@ export default function QuotationForm() {
   // Firestore sync functions
   const saveQuotationToFirestore = async () => {
     if (!uid) {
-      alert('Vui lòng đăng nhập trước khi lưu báo giá.')
+      toast.error('Vui lòng đăng nhập trước khi lưu báo giá.')
       return
     }
+    if (items.length === 0) {
+      toast.error('Chưa có hạng mục nào để lưu.')
+      return
+    }
+    const customer = window.prompt('Nhập tên khách hàng:') || 'Khách lẻ'
     const payload = {
-      customer: prompt('Nhập tên khách hàng:') || 'Khách lẻ',
+      customer,
       total: items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0),
       items,
       info: `${factoryName} - ${factoryHotline}`,
       createdAt: new Date().toISOString()
     }
+    const loadingId = toast.loading('Đang lưu báo giá...')
     try {
       await addDoc(collection(db, 'users', uid, 'quotations'), payload)
-      alert('Lưu báo giá vào Firestore thành công!')
+      toast.dismiss(loadingId)
+      toast.success(`Đã lưu báo giá cho "${customer}" vào Cloud!`)
     } catch (e) {
       console.error(e)
-      alert('Lưu báo giá thất bại.')
+      toast.dismiss(loadingId)
+      toast.error('Lưu báo giá thất bại. Vui lòng thử lại.')
     }
   }
 
   const loadQuotationsFromFirestore = async () => {
     if (!uid) {
-      alert('Vui lòng đăng nhập để tải báo giá.')
+      toast.error('Vui lòng đăng nhập để tải báo giá.')
       return
     }
+    const loadingId = toast.loading('Đang tải dữ liệu từ Cloud...')
     try {
       const q = query(collection(db, 'users', uid, 'quotations'))
       const snapshot = await getDocs(q)
@@ -246,16 +255,17 @@ export default function QuotationForm() {
         items: doc.items
       }))
       
-      // Combine with local templates, avoiding duplicates on multiple clicks
       setTemplates(prev => {
         const localTemplates = prev.filter(t => !t.name.startsWith('[Cloud]'))
         return [...localTemplates, ...cloudTemplates]
       })
       
-      alert(`Đã tải thành công ${data.length} báo giá! Vui lòng bấm vào "Tải mẫu" để xem.`)
+      toast.dismiss(loadingId)
+      toast.success(`Đã tải ${data.length} báo giá! Mở "Tải mẫu" để xem.`)
     } catch (e) {
       console.error(e)
-      alert('Lỗi tải báo giá từ Firestore.')
+      toast.dismiss(loadingId)
+      toast.error('Lỗi tải báo giá từ Cloud. Vui lòng thử lại.')
     }
   }
 
@@ -338,27 +348,39 @@ export default function QuotationForm() {
     }
   }
 
-  // PDF Export (Note: Needs Vietnamese Font handling for real production)
+  // PDF Export
   const generatePDF = () => {
-    // @ts-ignore
-    const doc = new jsPDF()
-    // In a real app, we must add a custom font for Vietnamese support
-    doc.text(pageTitle, 105, 20, { align: 'center' })
-    // @ts-ignore
-    doc.autoTable({
-      startY: 30,
-      head: [['STT', 'Mô tả', 'SL', 'ĐVT', 'Đơn giá', 'Thành tiền']],
-      body: items.map(item => [
-        item.id,
-        item.description,
-        item.quantity,
-        item.unit,
-        item.unitPrice.toLocaleString('vi-VN'),
-        (item.quantity * item.unitPrice).toLocaleString('vi-VN')
-      ]),
-      foot: [['', '', '', '', 'TỔNG CỘNG', items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0).toLocaleString('vi-VN')]],
-    })
-    doc.save('bao_gia.pdf')
+    if (items.length === 0) {
+      toast.error('Chưa có hạng mục nào để xuất PDF.')
+      return
+    }
+    const loadingId = toast.loading('Đang tạo file PDF...')
+    try {
+      // @ts-ignore
+      const doc = new jsPDF()
+      doc.text(pageTitle, 105, 20, { align: 'center' })
+      // @ts-ignore
+      doc.autoTable({
+        startY: 30,
+        head: [['STT', 'Mo ta', 'SL', 'DVT', 'Don gia', 'Thanh tien']],
+        body: items.map(item => [
+          item.id,
+          item.description,
+          item.quantity,
+          item.unit,
+          item.unitPrice.toLocaleString('vi-VN'),
+          (item.quantity * item.unitPrice).toLocaleString('vi-VN')
+        ]),
+        foot: [['', '', '', '', 'TONG CONG', items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0).toLocaleString('vi-VN')]],
+      })
+      doc.save('bao_gia.pdf')
+      toast.dismiss(loadingId)
+      toast.success('Đã xuất PDF thành công!')
+    } catch (e) {
+      console.error(e)
+      toast.dismiss(loadingId)
+      toast.error('Xuất PDF thất bại. Vui lòng thử lại.')
+    }
   }
 
   const printQuotation = () => {
@@ -404,6 +426,7 @@ export default function QuotationForm() {
 
   return (
     <div className="max-w-6xl mx-auto p-4 md:p-8 space-y-8 bg-white shadow-lg rounded-xl min-h-screen">
+      <ToastContainer />
       {/* Header section */}
       <div className="flex flex-col items-center text-center space-y-4 border-b pb-6">
         <h1 className="text-3xl font-extrabold text-slate-800 uppercase tracking-tight">{pageTitle}</h1>
@@ -414,9 +437,12 @@ export default function QuotationForm() {
             <p>{factoryHotline}</p>
             <p>{factoryEmail}</p>
           </div>
-          <Button variant="outline" size="sm" onClick={startEditingFactory} className="print:hidden shrink-0">
-            Sửa thông tin xưởng
-          </Button>
+          <div className="flex items-center gap-2 shrink-0 print:hidden">
+            <FirebaseAuthButton variant="header" />
+            <Button variant="outline" size="sm" onClick={startEditingFactory}>
+              Sửa thông tin xưởng
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -511,7 +537,15 @@ export default function QuotationForm() {
           <TableBody>
             {items.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="h-32 text-center text-slate-400 italic">Chưa có hạng mục nào được thêm vào báo giá.</TableCell>
+                <TableCell colSpan={8} className="h-44 text-center">
+                  <div className="flex flex-col items-center gap-3 text-slate-400">
+                    <div className="w-14 h-14 rounded-full bg-slate-100 flex items-center justify-center">
+                      <ClipboardList className="w-7 h-7 text-slate-300" />
+                    </div>
+                    <p className="text-base font-medium text-slate-400">Chưa có hạng mục nào</p>
+                    <p className="text-sm text-slate-300">Điền thông tin ở trên và nhấn <span className="font-semibold">+ Thêm mục</span> để bắt đầu</p>
+                  </div>
+                </TableCell>
               </TableRow>
             ) : (
               items.map((item) => (
@@ -560,19 +594,22 @@ export default function QuotationForm() {
       </div>
 
       {/* Footer Actions */}
-      <div className="flex flex-wrap gap-3 justify-end pt-6 border-t print:hidden">
-        <div className="flex items-center gap-2 mr-auto bg-slate-50 p-1 pl-3 rounded-md border">
-          <FolderOpen className="w-4 h-4 text-slate-400" />
-          <Input
-            placeholder="Tên mẫu báo giá..."
-            value={templateName}
-            onChange={(e) => setTemplateName(e.target.value)}
-            className="border-none bg-transparent focus-visible:ring-0 w-40"
-          />
-          <Button size="sm" onClick={saveTemplate} variant="ghost" className="hover:bg-white shadow-sm border"><Save className="w-4 h-4 mr-2" />Lưu mẫu</Button>
+      <div className="flex flex-col gap-3 pt-6 border-t print:hidden">
+        {/* Row 1: Template management */}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-2 flex-1 min-w-0 bg-slate-50 p-1 pl-3 rounded-md border">
+            <FolderOpen className="w-4 h-4 text-slate-400 shrink-0" />
+            <Input
+              placeholder="Tên mẫu báo giá..."
+              value={templateName}
+              onChange={(e) => setTemplateName(e.target.value)}
+              className="border-none bg-transparent focus-visible:ring-0 min-w-0 w-full"
+            />
+          </div>
+          <Button size="sm" onClick={saveTemplate} variant="ghost" className="hover:bg-white shadow-sm border shrink-0"><Save className="w-4 h-4 mr-2" />Lưu mẫu</Button>
           <Dialog>
             <DialogTrigger>
-              <Button size="sm" variant="ghost" className="hover:bg-white shadow-sm border"><FolderOpen className="w-4 h-4 mr-2" />Tải mẫu</Button>
+              <Button size="sm" variant="ghost" className="hover:bg-white shadow-sm border shrink-0"><FolderOpen className="w-4 h-4 mr-2" />Tải mẫu</Button>
             </DialogTrigger>
             <DialogContent className="max-w-md">
               <DialogHeader><DialogTitle>Danh sách mẫu đã lưu</DialogTitle></DialogHeader>
@@ -590,15 +627,27 @@ export default function QuotationForm() {
           </Dialog>
         </div>
 
-        <div className="flex gap-2 items-center">
-          <FirebaseAuthButton />
+        {/* Row 2: Action buttons — wrap gracefully on mobile */}
+        <div className="flex flex-wrap gap-2 justify-end">
           <Input type="file" ref={fileInputRef} onChange={importFromExcel} accept=".xlsx, .xls" className="hidden" />
-          <Button variant="outline" onClick={() => fileInputRef.current?.click()}><Plus className="w-4 h-4 mr-2" />Nhập Excel</Button>
-          <Button variant="outline" onClick={exportToExcel}><FileSpreadsheet className="w-4 h-4 mr-2" />Xuất Excel</Button>
-          <Button variant="outline" onClick={saveQuotationToFirestore} className="border-blue-600 text-blue-700 hover:bg-blue-50"><Save className="w-4 h-4 mr-2" />Lưu Firestore</Button>
-          <Button variant="outline" onClick={loadQuotationsFromFirestore} className="border-purple-600 text-purple-700 hover:bg-purple-50"><FolderOpen className="w-4 h-4 mr-2" />Tải Firestore</Button>
-          <Button variant="outline" onClick={generatePDF}><FileText className="w-4 h-4 mr-2" />Xuất PDF</Button>
-          <Button variant="default" onClick={printQuotation} className="bg-slate-800 hover:bg-slate-900"><Printer className="w-4 h-4 mr-2" />In trực tiếp</Button>
+          <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} className="shrink-0">
+            <Plus className="w-4 h-4 mr-1" /><span className="hidden sm:inline">Nhập</span> Excel
+          </Button>
+          <Button variant="outline" size="sm" onClick={exportToExcel} className="shrink-0">
+            <FileSpreadsheet className="w-4 h-4 mr-1" /><span className="hidden sm:inline">Xuất</span> Excel
+          </Button>
+          <Button variant="outline" size="sm" onClick={saveQuotationToFirestore} className="border-blue-500 text-blue-700 hover:bg-blue-50 shrink-0">
+            <Save className="w-4 h-4 mr-1" />Lưu Cloud
+          </Button>
+          <Button variant="outline" size="sm" onClick={loadQuotationsFromFirestore} className="border-purple-500 text-purple-700 hover:bg-purple-50 shrink-0">
+            <FolderOpen className="w-4 h-4 mr-1" />Tải Cloud
+          </Button>
+          <Button variant="outline" size="sm" onClick={generatePDF} className="shrink-0">
+            <FileText className="w-4 h-4 mr-1" />Xuất PDF
+          </Button>
+          <Button size="sm" onClick={printQuotation} className="bg-slate-800 hover:bg-slate-900 text-white shrink-0">
+            <Printer className="w-4 h-4 mr-1" />In trực tiếp
+          </Button>
         </div>
       </div>
 
