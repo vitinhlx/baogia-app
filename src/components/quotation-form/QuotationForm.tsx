@@ -219,9 +219,10 @@ export default function QuotationForm() {
       toast.error('Chưa có hạng mục nào để lưu.')
       return
     }
-    const customer = templateName.trim() || 'Khách lẻ'
+    const quotationName = templateName.trim() || 'Báo giá không tên'
     const payload = {
-      customer,
+      name: quotationName,     // Mới: lưu theo Tên báo giá
+      customer: quotationName, // Tương thích dữ liệu cũ
       total: items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0),
       items,
       info: `${factoryName} - ${factoryHotline}`,
@@ -231,7 +232,7 @@ export default function QuotationForm() {
     try {
       await addDoc(collection(db, 'users', uid, 'quotations'), payload)
       toast.dismiss(loadingId)
-      toast.success(`Đã lưu báo giá cho "${customer}" vào Cloud!`)
+      toast.success(`Đã lưu "${quotationName}" vào Cloud!`)
     } catch (e) {
       console.error(e)
       toast.dismiss(loadingId)
@@ -251,7 +252,7 @@ export default function QuotationForm() {
       const data = snapshot.docs.map(doc => doc.data())
       
       const cloudTemplates = data.map(doc => ({
-        name: `[Cloud] ${doc.customer || 'Khách lẻ'} - ${new Date(doc.createdAt).toLocaleDateString('vi-VN')}`,
+        name: `[Cloud] ${doc.name || doc.customer || 'Báo giá không tên'} - ${new Date(doc.createdAt).toLocaleDateString('vi-VN')}`,
         items: doc.items
       }))
       
