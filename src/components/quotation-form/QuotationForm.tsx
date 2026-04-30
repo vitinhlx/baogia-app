@@ -15,6 +15,9 @@ import { onAuthStateChanged } from 'firebase/auth'
 import { collection, addDoc, getDocs, query } from 'firebase/firestore'
 import FirebaseAuthButton from '@/components/quotation-form/FirebaseAuthButton'
 import { toast, ToastContainer } from '@/components/quotation-form/Toast'
+import MaterialSelector from '@/components/quotation-form/MaterialSelector'
+import TemplatePicker from '@/components/quotation-form/TemplatePicker'
+import type { Material } from '@/data/materials'
 
 // Types
 type QuotationItem = {
@@ -26,21 +29,13 @@ type QuotationItem = {
   note: string
 }
 
-type QuotationTemplate = {
+type QuotationTemplateLocal = {
   name: string
   items: QuotationItem[]
 }
 
 // Fixed suggestions and defaults
-const suggestionItems = [
-  "Tủ quần áo 1450*800*600 ",
-  "Bàn trang điểm 800*750*400 ",
-  "Kệ sách 1200*800*350 ",
-  "Tab đầu giường 500*500*400",
-  "Bàn trang điểm 1200*750*600 ",
-]
-
-const suggestedUnits = ["Cái", "Bộ", "m2", "md"]
+const suggestedUnits = ["Cái", "Bộ", "m2", "md", "Tấm"]
 
 export default function QuotationForm() {
   const [items, setItems] = useState<QuotationItem[]>([])
@@ -49,12 +44,11 @@ export default function QuotationForm() {
   const [unit, setUnit] = useState('')
   const [unitPrice, setUnitPrice] = useState('')
   const [note, setNote] = useState('')
-  const [suggestions, setSuggestions] = useState<string[]>([])
   const [unitSuggestions, setUnitSuggestions] = useState<string[]>([])
   const [editingItem, setEditingItem] = useState<QuotationItem | null>(null)
   
   // Storage states
-  const [templates, setTemplates] = useState<QuotationTemplate[]>([])
+  const [templates, setTemplates] = useState<QuotationTemplateLocal[]>([])
   const [templateName, setTemplateName] = useState('')
   
   const [editableNotes, setEditableNotes] = useState<string[]>([
@@ -77,7 +71,6 @@ export default function QuotationForm() {
   const [isEditingFactory, setIsEditingFactory] = useState(false)
   
   // Refs
-  const descriptionRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Temp form states for dialogs
@@ -116,17 +109,31 @@ export default function QuotationForm() {
     return () => unsub()
   }, [])
 
-  // Description suggestions
-  useEffect(() => {
-    if (description) {
-      const filtered = suggestionItems.filter(item =>
-        item.toLowerCase().includes(description.toLowerCase())
-      )
-      setSuggestions(filtered)
-    } else {
-      setSuggestions([])
+  // Material Selection Handler
+  const handleMaterialSelect = (material: Material) => {
+    const fullDescription = `${material.brand} ${material.code} - ${material.name}`
+    setDescription(fullDescription)
+    if (material.defaultPrice) {
+      setUnitPrice(material.defaultPrice.toString())
     }
-  }, [description])
+    // Auto set unit if it's a board
+    if (material.category === 'full' || material.category === 'core') {
+      setUnit('Tấm')
+    }
+  }
+
+  // Apply built-in template
+  const applyBuiltInTemplate = (templateItems: Omit<QuotationItem, 'id'>[]) => {
+    setItems(prev => {
+      const newItems = templateItems.map((item, index) => ({
+        ...item,
+        id: prev.length + index + 1
+      }))
+      const all = [...prev, ...newItems]
+      return all.map((item, idx) => ({ ...item, id: idx + 1 }))
+    })
+    toast.success(`Đã thêm ${templateItems.length} hạng mục từ mẫu!`)
+  }
 
   // Handlers
   const addItem = () => {
@@ -160,9 +167,9 @@ export default function QuotationForm() {
       setUnit('')
       setUnitPrice('')
       setNote('')
-      descriptionRef.current?.focus()
     }
   }
+
 
   const editItem = (item: QuotationItem) => {
     setEditingItem(item)
@@ -172,8 +179,8 @@ export default function QuotationForm() {
     setUnitPrice(item.unitPrice.toString())
     setNote(item.note)
     window.scrollTo({ top: 0, behavior: 'smooth' })
-    descriptionRef.current?.focus()
   }
+
 
   const deleteItem = (id: number) => {
     const updatedItems = items.filter(item => item.id !== id).map((item, index) => ({
@@ -186,7 +193,7 @@ export default function QuotationForm() {
   // Template Handlers
   const saveTemplate = () => {
     if (templateName && items.length > 0) {
-      const newTemplate = { name: templateName, items }
+      const newTemplate: QuotationTemplateLocal = { name: templateName, items }
       const updatedTemplates = [...templates, newTemplate]
       setTemplates(updatedTemplates)
       localStorage.setItem('quotationTemplates', JSON.stringify(updatedTemplates))
@@ -194,7 +201,7 @@ export default function QuotationForm() {
     }
   }
 
-  const loadTemplate = (template: QuotationTemplate) => {
+  const loadTemplate = (template: QuotationTemplateLocal) => {
     const updatedItems = template.items.map((item, index) => ({
       ...item,
       id: index + 1
@@ -448,25 +455,13 @@ export default function QuotationForm() {
       {/* Form section */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 bg-slate-50 p-6 rounded-lg border print:hidden">
         <div className="md:col-span-2 relative">
-          <Label htmlFor="description" className="mb-2 block">Mô tả chi tiết</Label>
-          <Input
-            id="description"
-            ref={descriptionRef}
+          <Label htmlFor="description" className="mb-2 block">Mô tả chi tiết / Vật liệu</Label>
+          <MaterialSelector 
             value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Ví dụ: Tủ áo MDF, Bàn làm việc..."
-            className="w-full h-12 text-lg"
+            onSelect={handleMaterialSelect}
+            onInputChange={setDescription}
+            placeholder="Nhập mô tả hoặc tìm vật liệu (An Cường, Ba Thanh...)"
           />
-          {suggestions.length > 0 && (
-            <ul className="absolute z-50 w-full bg-white border border-slate-200 shadow-xl rounded-md mt-1 max-h-60 overflow-auto divide-y">
-              {suggestions.map((s, i) => (
-                <li key={i} className="px-4 py-3 hover:bg-slate-50 cursor-pointer transition-colors"
-                  onClick={() => { setDescription(s); setSuggestions([]) }}>
-                  {s}
-                </li>
-              ))}
-            </ul>
-          )}
         </div>
         
         <div>
@@ -608,7 +603,7 @@ export default function QuotationForm() {
           <Button size="sm" onClick={saveTemplate} variant="ghost" className="hover:bg-white shadow-sm border shrink-0"><Save className="w-4 h-4 mr-2" />Lưu mẫu</Button>
           <Dialog>
             <DialogTrigger>
-              <Button size="sm" variant="ghost" className="hover:bg-white shadow-sm border shrink-0"><FolderOpen className="w-4 h-4 mr-2" />Tải mẫu</Button>
+              <span className="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium h-9 px-3 rounded-md border shadow-sm hover:bg-white cursor-pointer shrink-0"><FolderOpen className="w-4 h-4" />Tải mẫu</span>
             </DialogTrigger>
             <DialogContent className="max-w-md">
               <DialogHeader><DialogTitle>Danh sách mẫu đã lưu</DialogTitle></DialogHeader>
@@ -628,6 +623,7 @@ export default function QuotationForm() {
 
         {/* Row 2: Action buttons — wrap gracefully on mobile */}
         <div className="flex flex-wrap gap-2 justify-end">
+          <TemplatePicker onApply={applyBuiltInTemplate} />
           <Input type="file" ref={fileInputRef} onChange={importFromExcel} accept=".xlsx, .xls" className="hidden" />
           <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} className="shrink-0">
             <Plus className="w-4 h-4 mr-1" /><span className="hidden sm:inline">Nhập</span> Excel
