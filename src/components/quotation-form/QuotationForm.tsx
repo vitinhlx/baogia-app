@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect, type ChangeEvent } from 'react'
+import { useState, useRef, useEffect, useCallback, type ChangeEvent } from 'react'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -18,6 +18,13 @@ import { toast, ToastContainer } from '@/components/quotation-form/Toast'
 import MaterialSelector from '@/components/quotation-form/MaterialSelector'
 import TemplatePicker from '@/components/quotation-form/TemplatePicker'
 import type { Material } from '@/data/materials'
+import {
+  DEFAULT_FACTORY_INFO,
+  DEFAULT_NOTES,
+  loadUserProfile,
+  saveUserProfile,
+  type UserProfile,
+} from '@/services/userProfileService'
 
 // Types
 type QuotationItem = {
@@ -51,19 +58,17 @@ export default function QuotationForm() {
   const [templates, setTemplates] = useState<QuotationTemplateLocal[]>([])
   const [templateName, setTemplateName] = useState('')
   
-  const [editableNotes, setEditableNotes] = useState<string[]>([
-    'Sản phẩm gỗ nội thất được bảo hành kỹ thuật 12 tháng (lỗi do kỹ thuật thi công: rơi vỡ, rung lắc,...)',
-    'Không bảo hành nước, mối mọt đối với vật liệu gỗ.',
-    'Bảng báo giá trên có hiệu lực 30 ngày kể từ ngày báo giá, sẽ có điều chỉnh dựa trên tình hình giá cả vật tư tăng giảm(nếu có). Cảm ơn Quí khách hàng đã tin tưởng và ủng hộ !!!',
-    'Thông tin số tài khoản : 0.5555.1368 - Nguyễn Phước Vĩnh Thành - Ngân Hàng : Nam Á Bank'
-  ])
+  const [editableNotes, setEditableNotes] = useState<string[]>(DEFAULT_NOTES)
   
-  const [pageTitle, setPageTitle] = useState('BÁO GIÁ THI CÔNG NỘI THẤT')
-  const [factoryName, setFactoryName] = useState('XƯỞNG SX - NỘI THẤT - THÂN THIỆN')
-  const [factoryAddress, setFactoryAddress] = useState('Địa chỉ: Khu B4, Phường Đông Xuyên')
-  const [factoryHotline, setFactoryHotline] = useState('Hotline: 0918306813 - 0988288701')
-  const [factoryEmail, setFactoryEmail] = useState('Email: vitinhlx@gmail.com')
+  const [pageTitle, setPageTitle] = useState(DEFAULT_FACTORY_INFO.pageTitle)
+  const [factoryName, setFactoryName] = useState(DEFAULT_FACTORY_INFO.name)
+  const [factoryAddress, setFactoryAddress] = useState(DEFAULT_FACTORY_INFO.address)
+  const [factoryHotline, setFactoryHotline] = useState(DEFAULT_FACTORY_INFO.hotline)
+  const [factoryEmail, setFactoryEmail] = useState(DEFAULT_FACTORY_INFO.email)
   const [uid, setUid] = useState<string | null>(null)
+
+  // Debounce ref cho cloud sync
+  const profileSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // UI States
   const [isEditingNotes, setIsEditingNotes] = useState(false)
@@ -80,33 +85,60 @@ export default function QuotationForm() {
   const [tempFactoryHotline, setTempFactoryHotline] = useState('')
   const [tempFactoryEmail, setTempFactoryEmail] = useState('')
 
-  // Load from localstorage on mount
+  // Load templates from LocalStorage on mount (templates vẫn local-only)
   useEffect(() => {
     const savedTemplates = localStorage.getItem('quotationTemplates')
     if (savedTemplates) setTemplates(JSON.parse(savedTemplates))
-
-    const savedNotes = localStorage.getItem('quotationNotes')
-    if (savedNotes) setEditableNotes(JSON.parse(savedNotes))
-
-    const savedPageTitle = localStorage.getItem('pageTitle')
-    if (savedPageTitle) setPageTitle(savedPageTitle)
-
-    const savedFactoryInfo = localStorage.getItem('factoryInfo')
-    if (savedFactoryInfo) {
-      const info = JSON.parse(savedFactoryInfo)
-      setFactoryName(info.name)
-      setFactoryAddress(info.address)
-      setFactoryHotline(info.hotline)
-      setFactoryEmail(info.email)
-    }
   }, [])
 
-  // Listen for Firebase auth state changes
+  // Hàm áp dụng profile lên UI state
+  const applyProfile = useCallback((profile: UserProfile) => {
+    setEditableNotes(profile.defaultNotes)
+    setPageTitle(profile.factoryInfo.pageTitle)
+    setFactoryName(profile.factoryInfo.name)
+    setFactoryAddress(profile.factoryInfo.address)
+    setFactoryHotline(profile.factoryInfo.hotline)
+    setFactoryEmail(profile.factoryInfo.email)
+  }, [])
+
+  // Listen for Firebase auth state changes + load profile khi login
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (user) => {
-      setUid(user?.uid ?? null)
+    const unsub = onAuthStateChanged(auth, async (user) => {
+      const newUid = user?.uid ?? null
+      setUid(newUid)
+
+      if (newUid) {
+        // Load profile từ Firestore (fallback sang LocalStorage cache nếu offline)
+        const profile = await loadUserProfile(newUid)
+        applyProfile(profile)
+      } else {
+        // Đăng xuất → reset về default
+        applyProfile({ factoryInfo: DEFAULT_FACTORY_INFO, defaultNotes: DEFAULT_NOTES })
+      }
     })
     return () => unsub()
+  }, [applyProfile])
+
+  /** Lưu profile với debounce 1.5s — gọi sau mỗi lần user save factory/notes */
+  const debouncedSaveProfile = useCallback(
+    (currentUid: string, profile: UserProfile) => {
+      if (profileSaveTimerRef.current) clearTimeout(profileSaveTimerRef.current)
+      profileSaveTimerRef.current = setTimeout(async () => {
+        try {
+          await saveUserProfile(currentUid, profile)
+        } catch {
+          // Mất mạng — LocalStorage đã được ghi rồi, bỏ qua lỗi cloud
+        }
+      }, 1500)
+    },
+    []
+  )
+
+  // Dọn timer khi component unmount — tránh memory leak
+  useEffect(() => {
+    return () => {
+      if (profileSaveTimerRef.current) clearTimeout(profileSaveTimerRef.current)
+    }
   }, [])
 
   // Material Selection Handler
@@ -285,8 +317,19 @@ export default function QuotationForm() {
 
   const saveNotes = () => {
     setEditableNotes(tempNotes)
-    localStorage.setItem('quotationNotes', JSON.stringify(tempNotes))
     setIsEditingNotes(false)
+    if (uid) {
+      // Build profile hiện tại với notes mới rồi sync cloud
+      const profile: UserProfile = {
+        factoryInfo: { name: factoryName, address: factoryAddress, hotline: factoryHotline, email: factoryEmail, pageTitle },
+        defaultNotes: tempNotes,
+      }
+      debouncedSaveProfile(uid, profile)
+      // Toast chính xác: đã lưu local, đang sync cloud
+      toast.success('Đã lưu ghi chú! Đang đồng bộ lên Cloud...')
+    } else {
+      toast.success('Đã lưu ghi chú (chưa đăng nhập — chỉ lưu cục bộ).')
+    }
   }
 
   // Factory Handlers
@@ -305,14 +348,18 @@ export default function QuotationForm() {
     setFactoryAddress(tempFactoryAddress)
     setFactoryHotline(tempFactoryHotline)
     setFactoryEmail(tempFactoryEmail)
-    localStorage.setItem('pageTitle', tempPageTitle)
-    localStorage.setItem('factoryInfo', JSON.stringify({
-      name: tempFactoryName,
-      address: tempFactoryAddress,
-      hotline: tempFactoryHotline,
-      email: tempFactoryEmail
-    }))
     setIsEditingFactory(false)
+    if (uid) {
+      const profile: UserProfile = {
+        factoryInfo: { name: tempFactoryName, address: tempFactoryAddress, hotline: tempFactoryHotline, email: tempFactoryEmail, pageTitle: tempPageTitle },
+        defaultNotes: editableNotes,
+      }
+      debouncedSaveProfile(uid, profile)
+      // Toast chính xác: đã lưu local, đang sync cloud
+      toast.success('Đã lưu! Đang đồng bộ thông tin xưởng lên Cloud...')
+    } else {
+      toast.success('Đã lưu thông tin xưởng (chưa đăng nhập — chỉ lưu cục bộ).')
+    }
   }
 
   // Export Handlers
