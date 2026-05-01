@@ -134,9 +134,17 @@ export async function loadUserProfile(uid: string): Promise<UserProfile> {
 }
 
 /**
+ * Lưu profile lên Firestore (cloud only).
+ * Caller phải đã ghi cache (writeProfileCache) trước khi gọi.
+ * Thường được gọi qua debounce timer.
+ */
+export async function saveProfileToCloud(uid: string, profile: UserProfile): Promise<void> {
+  await saveProfileToFirestore(uid, profile)
+}
+
+/**
  * Lưu profile (cả Firestore lẫn cache).
  * Ghi LocalStorage ngay, ghi Firestore bất đồng bộ.
- * Caller có thể dùng debounce trước khi gọi hàm này.
  */
 export async function saveUserProfile(uid: string, profile: UserProfile): Promise<void> {
   writeProfileCache(uid, profile) // Ghi cache ngay — UX không chờ mạng

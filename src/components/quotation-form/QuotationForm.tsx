@@ -22,7 +22,8 @@ import {
   DEFAULT_FACTORY_INFO,
   DEFAULT_NOTES,
   loadUserProfile,
-  saveUserProfile,
+  saveProfileToCloud,
+  writeProfileCache,
   type UserProfile,
 } from '@/services/userProfileService'
 
@@ -119,13 +120,13 @@ export default function QuotationForm() {
     return () => unsub()
   }, [applyProfile])
 
-  /** Lưu profile với debounce 1.5s — gọi sau mỗi lần user save factory/notes */
+  /** Debounce cloud sync 1.5s — cache đã được ghi ngay tại saveNotes/saveFactory */
   const debouncedSaveProfile = useCallback(
     (currentUid: string, profile: UserProfile) => {
       if (profileSaveTimerRef.current) clearTimeout(profileSaveTimerRef.current)
       profileSaveTimerRef.current = setTimeout(async () => {
         try {
-          await saveUserProfile(currentUid, profile)
+          await saveProfileToCloud(currentUid, profile)
         } catch {
           // Mất mạng — LocalStorage đã được ghi rồi, bỏ qua lỗi cloud
         }
@@ -321,13 +322,15 @@ export default function QuotationForm() {
     setEditableNotes(tempNotes)
     setIsEditingNotes(false)
     if (uid) {
-      // Build profile hiện tại với notes mới rồi sync cloud
+      // Build profile hiện tại với notes mới
       const profile: UserProfile = {
         factoryInfo: { name: factoryName, address: factoryAddress, hotline: factoryHotline, email: factoryEmail, pageTitle },
         defaultNotes: tempNotes,
       }
+      // Ghi cache NGAY — đảm bảo data tồn tại kể cả khi đóng trang
+      writeProfileCache(uid, profile)
+      // Debounce cloud sync
       debouncedSaveProfile(uid, profile)
-      // Toast chính xác: đã lưu local, đang sync cloud
       toast.success('Đã lưu ghi chú! Đang đồng bộ lên Cloud...')
     } else {
       toast.success('Đã lưu ghi chú (chưa đăng nhập — chỉ lưu cục bộ).')
@@ -356,8 +359,10 @@ export default function QuotationForm() {
         factoryInfo: { name: tempFactoryName, address: tempFactoryAddress, hotline: tempFactoryHotline, email: tempFactoryEmail, pageTitle: tempPageTitle },
         defaultNotes: editableNotes,
       }
+      // Ghi cache NGAY — đảm bảo data tồn tại kể cả khi đóng trang
+      writeProfileCache(uid, profile)
+      // Debounce cloud sync
       debouncedSaveProfile(uid, profile)
-      // Toast chính xác: đã lưu local, đang sync cloud
       toast.success('Đã lưu! Đang đồng bộ thông tin xưởng lên Cloud...')
     } else {
       toast.success('Đã lưu thông tin xưởng (chưa đăng nhập — chỉ lưu cục bộ).')
