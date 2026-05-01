@@ -7,12 +7,12 @@ import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog"
 import * as XLSX from 'xlsx'
-import { jsPDF } from 'jspdf'
-import autoTable from 'jspdf-autotable'
-import { Pencil, Trash2, Plus, FileSpreadsheet, FileText, Printer, Save, FolderOpen, ClipboardList } from 'lucide-react'
-import { auth, db } from '@/firebase/firebaseConfig'
+// import { jsPDF } from 'jspdf'
+// import autoTable from 'jspdf-autotable'
+import { Pencil, Trash2, Plus, FileSpreadsheet, Printer, Save, FolderOpen, ClipboardList } from 'lucide-react'
+import { auth } from '@/firebase/firebaseConfig'
 import { onAuthStateChanged } from 'firebase/auth'
-import { collection, addDoc, getDocs, query } from 'firebase/firestore'
+// import { collection, addDoc, getDocs, query } from 'firebase/firestore'
 import FirebaseAuthButton from '@/components/quotation-form/FirebaseAuthButton'
 import { toast, ToastContainer } from '@/components/quotation-form/Toast'
 import MaterialSelector from '@/components/quotation-form/MaterialSelector'
@@ -249,6 +249,7 @@ export default function QuotationForm() {
 
   // ------------------------------------------------
   // Firestore sync functions
+  /* 
   const saveQuotationToFirestore = async () => {
     if (!uid) {
       toast.error('Vui lòng đăng nhập trước khi lưu báo giá.')
@@ -308,6 +309,7 @@ export default function QuotationForm() {
       toast.error('Lỗi tải báo giá từ Cloud. Vui lòng thử lại.')
     }
   }
+  */
 
   // Note Handlers
   const startEditingNotes = () => {
@@ -404,6 +406,7 @@ export default function QuotationForm() {
   }
 
   // PDF Export
+  /*
   const generatePDF = () => {
     if (items.length === 0) {
       toast.error('Chưa có hạng mục nào để xuất PDF.')
@@ -435,6 +438,7 @@ export default function QuotationForm() {
       toast.error('Xuất PDF thất bại. Vui lòng thử lại.')
     }
   }
+  */
 
   const printQuotation = () => {
     window.print()
@@ -678,7 +682,7 @@ export default function QuotationForm() {
           <Button variant="outline" size="sm" onClick={exportToExcel} className="shrink-0">
             <FileSpreadsheet className="w-4 h-4 mr-1" /><span className="hidden sm:inline">Xuất</span> Excel
           </Button>
-          <Button variant="outline" size="sm" onClick={saveQuotationToFirestore} className="border-blue-500 text-blue-700 hover:bg-blue-50 shrink-0">
+          {/* <Button variant="outline" size="sm" onClick={saveQuotationToFirestore} className="border-blue-500 text-blue-700 hover:bg-blue-50 shrink-0">
             <Save className="w-4 h-4 mr-1" />Lưu Cloud
           </Button>
           <Button variant="outline" size="sm" onClick={loadQuotationsFromFirestore} className="border-purple-500 text-purple-700 hover:bg-purple-50 shrink-0">
@@ -686,7 +690,7 @@ export default function QuotationForm() {
           </Button>
           <Button variant="outline" size="sm" onClick={generatePDF} className="shrink-0">
             <FileText className="w-4 h-4 mr-1" />Xuất PDF
-          </Button>
+          </Button> */}
           <Button size="sm" onClick={printQuotation} className="bg-slate-800 hover:bg-slate-900 text-white shrink-0">
             <Printer className="w-4 h-4 mr-1" />In trực tiếp
           </Button>
