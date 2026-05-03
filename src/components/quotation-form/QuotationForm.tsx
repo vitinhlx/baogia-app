@@ -24,6 +24,8 @@ import {
   loadUserProfile,
   saveProfileToCloud,
   writeProfileCache,
+  readProfileCache,
+  APPS_SCRIPT_URL,
   type UserProfile,
 } from '@/services/userProfileService'
 
@@ -109,7 +111,13 @@ export default function QuotationForm() {
       setUid(newUid)
 
       if (newUid) {
-        // Load profile từ Firestore (fallback sang LocalStorage cache nếu offline)
+        // 1. Hiển thị ngay từ LocalStorage cache (synchronous, không chờ mạng)
+        const cached = readProfileCache(newUid)
+        if (cached) {
+          applyProfile(cached)
+        }
+
+        // 2. Fetch Firestore để lấy data mới nhất (bất đồng bộ)
         const profile = await loadUserProfile(newUid)
         applyProfile(profile)
       } else {
@@ -126,7 +134,7 @@ export default function QuotationForm() {
       if (profileSaveTimerRef.current) clearTimeout(profileSaveTimerRef.current)
       profileSaveTimerRef.current = setTimeout(async () => {
         try {
-          await saveProfileToCloud(currentUid, profile)
+          await saveProfileToCloud(currentUid, profile, auth.currentUser?.email || '')
         } catch {
           // Mất mạng — LocalStorage đã được ghi rồi, bỏ qua lỗi cloud
         }
@@ -249,9 +257,8 @@ export default function QuotationForm() {
   }
 
   // ------------------------------------------------
-  // Firestore sync functions
-  /* 
-  const saveQuotationToFirestore = async () => {
+  // Cloud sync functions (Google Sheets via Apps Script)
+  const saveQuotationToCloud = async () => {
     if (!uid) {
       toast.error('Vui lòng đăng nhập trước khi lưu báo giá.')
       return
@@ -260,18 +267,29 @@ export default function QuotationForm() {
       toast.error('Chưa có hạng mục nào để lưu.')
       return
     }
+    
     const quotationName = templateName.trim() || 'Báo giá không tên'
     const payload = {
-      name: quotationName,     // Mới: lưu theo Tên báo giá
-      customer: quotationName, // Tương thích dữ liệu cũ
+      name: quotationName,     
+      customer: quotationName, 
       total: items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0),
       items,
       info: `${factoryName} - ${factoryHotline}`,
       createdAt: new Date().toISOString()
     }
+    
     const loadingId = toast.loading('Đang lưu báo giá...')
     try {
-      await addDoc(collection(db, 'users', uid, 'quotations'), payload)
+      await fetch(APPS_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'saveQuotation',
+          uid,
+          email: auth.currentUser?.email || '',
+          quotation: payload
+        })
+      });
       toast.dismiss(loadingId)
       toast.success(`Đã lưu "${quotationName}" vào Cloud!`)
     } catch (e) {
@@ -281,36 +299,38 @@ export default function QuotationForm() {
     }
   }
 
-  const loadQuotationsFromFirestore = async () => {
+  const loadQuotationsFromCloud = async () => {
     if (!uid) {
       toast.error('Vui lòng đăng nhập để tải báo giá.')
       return
     }
+
     const loadingId = toast.loading('Đang tải dữ liệu từ Cloud...')
     try {
-      const q = query(collection(db, 'users', uid, 'quotations'))
-      const snapshot = await getDocs(q)
-      const data = snapshot.docs.map(doc => doc.data())
-      
-      const cloudTemplates = data.map(doc => ({
-        name: `[Cloud] ${doc.name || doc.customer || 'Báo giá không tên'} - ${new Date(doc.createdAt).toLocaleDateString('vi-VN')}`,
-        items: doc.items
-      }))
-      
-      setTemplates(prev => {
-        const localTemplates = prev.filter(t => !t.name.startsWith('[Cloud]'))
-        return [...localTemplates, ...cloudTemplates]
-      })
-      
-      toast.dismiss(loadingId)
-      toast.success(`Đã tải ${data.length} báo giá! Mở "Tải mẫu" để xem.`)
+      const res = await fetch(`${APPS_SCRIPT_URL}?action=getQuotations&uid=${uid}`)
+      const json = await res.json()
+      if (json.success && json.data) {
+        const cloudTemplates = json.data.map((doc: any) => ({
+          name: `[Cloud] ${doc.name || doc.customer || 'Báo giá không tên'} - ${new Date(doc.createdAt).toLocaleDateString('vi-VN')}`,
+          items: doc.items
+        }))
+        
+        setTemplates(prev => {
+          const localTemplates = prev.filter(t => !t.name.startsWith('[Cloud]'))
+          return [...localTemplates, ...cloudTemplates]
+        })
+        
+        toast.dismiss(loadingId)
+        toast.success(`Đã tải ${json.data.length} báo giá! Mở "Tải mẫu" để xem.`)
+      } else {
+        throw new Error('Failed to load')
+      }
     } catch (e) {
       console.error(e)
       toast.dismiss(loadingId)
       toast.error('Lỗi tải báo giá từ Cloud. Vui lòng thử lại.')
     }
   }
-  */
 
   // Note Handlers
   const startEditingNotes = () => {
@@ -687,13 +707,13 @@ export default function QuotationForm() {
           <Button variant="outline" size="sm" onClick={exportToExcel} className="shrink-0">
             <FileSpreadsheet className="w-4 h-4 mr-1" /><span className="hidden sm:inline">Xuất</span> Excel
           </Button>
-          {/* <Button variant="outline" size="sm" onClick={saveQuotationToFirestore} className="border-blue-500 text-blue-700 hover:bg-blue-50 shrink-0">
+          <Button variant="outline" size="sm" onClick={saveQuotationToCloud} className="border-blue-500 text-blue-700 hover:bg-blue-50 shrink-0">
             <Save className="w-4 h-4 mr-1" />Lưu Cloud
           </Button>
-          <Button variant="outline" size="sm" onClick={loadQuotationsFromFirestore} className="border-purple-500 text-purple-700 hover:bg-purple-50 shrink-0">
+          <Button variant="outline" size="sm" onClick={loadQuotationsFromCloud} className="border-purple-500 text-purple-700 hover:bg-purple-50 shrink-0">
             <FolderOpen className="w-4 h-4 mr-1" />Tải Cloud
           </Button>
-          <Button variant="outline" size="sm" onClick={generatePDF} className="shrink-0">
+          {/* <Button variant="outline" size="sm" onClick={generatePDF} className="shrink-0">
             <FileText className="w-4 h-4 mr-1" />Xuất PDF
           </Button> */}
           <Button size="sm" onClick={printQuotation} className="bg-slate-800 hover:bg-slate-900 text-white shrink-0">

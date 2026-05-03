@@ -2,15 +2,15 @@
  * userProfileService.ts
  *
  * Quản lý thông tin profile người dùng (FactoryInfo + defaultNotes).
- * Chiến lược: Firestore = source of truth, LocalStorage = offline cache theo uid.
+ * Chiến lược: Google Apps Script = source of truth, LocalStorage = offline cache theo uid.
  *
  * Luồng đọc:  Login → fetchProfile(uid) → ghi LocalStorage → render UI
- * Luồng ghi:  User edit → ghi LocalStorage ngay → debounce 1.5s → ghi Firestore
- * Luồng fallback: Firestore lỗi → đọc LocalStorage cache (offline-friendly)
+ * Luồng ghi:  User edit → ghi LocalStorage ngay → debounce 1.5s → ghi Cloud
+ * Luồng fallback: Mạng lỗi → đọc LocalStorage cache (offline-friendly)
  */
 
-import { db } from '@/firebase/firebaseConfig'
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
+// Không dùng Firestore nữa, dùng Google Apps Script
+export const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzoaJPV-pJctzp4m2b-PXplYkWtsmT-xKPq_JFhfjrsjG04kPqpQNDFKFjYKi_kUNVQQw/exec'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -72,81 +72,81 @@ export function clearProfileCache(uid: string): void {
   localStorage.removeItem(cacheKey(uid))
 }
 
-// ─── Firestore CRUD ───────────────────────────────────────────────────────────
-
-const profileDocRef = (uid: string) => doc(db, 'users', uid, 'settings', 'profile')
-
 /**
- * Tải profile từ Firestore.
- * Nếu document chưa tồn tại (lần đầu đăng nhập) → trả về null.
- * Nếu mất mạng / lỗi → throw để caller fallback sang cache.
+ * Tải profile từ Google Sheet qua Apps Script.
  */
-export async function fetchProfileFromFirestore(uid: string): Promise<UserProfile | null> {
-  const snap = await getDoc(profileDocRef(uid))
-  if (!snap.exists()) return null
-  const data = snap.data()
-  return {
-    factoryInfo: data.factoryInfo ?? DEFAULT_FACTORY_INFO,
-    defaultNotes: data.defaultNotes ?? DEFAULT_NOTES,
-    updatedAt: data.updatedAt?.toDate?.()?.toISOString(),
+export async function fetchProfileFromCloud(uid: string): Promise<UserProfile | null> {
+  try {
+    const res = await fetch(`${APPS_SCRIPT_URL}?action=getProfile&uid=${uid}`)
+    const json = await res.json()
+    if (json.success && json.data) {
+      return json.data as UserProfile
+    }
+    return null
+  } catch {
+    return null
   }
 }
 
 /**
- * Lưu profile lên Firestore.
- * Dùng merge: true để không ghi đè các fields khác (nếu sau này mở rộng schema).
+ * Lưu profile lên Google Sheet qua Apps Script.
  */
-export async function saveProfileToFirestore(uid: string, profile: UserProfile): Promise<void> {
-  await setDoc(
-    profileDocRef(uid),
-    {
-      factoryInfo: profile.factoryInfo,
-      defaultNotes: profile.defaultNotes,
-      updatedAt: serverTimestamp(),
-    },
-    { merge: true }
-  )
+export async function saveProfileToCloudEndpoint(uid: string, profile: UserProfile, email: string = ''): Promise<void> {
+  try {
+    await fetch(APPS_SCRIPT_URL, {
+      method: 'POST',
+      // Dùng text/plain để tránh lỗi CORS Preflight trên trình duyệt
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        action: 'saveProfile',
+        uid,
+        email,
+        profile
+      })
+    })
+  } catch (e) {
+    console.error('Lỗi lưu Google Sheet:', e)
+  }
 }
 
 // ─── Main API ─────────────────────────────────────────────────────────────────
 
 /**
  * Tải profile khi user đăng nhập.
- * Ưu tiên: Firestore → ghi cache → trả về.
- * Fallback: LocalStorage cache nếu Firestore không trả về kịp hoặc lỗi.
+ * Ưu tiên: Cloud → ghi cache → trả về.
+ * Fallback: LocalStorage cache nếu Cloud không trả về kịp hoặc lỗi.
  * Nếu cả hai đều null (lần đầu dùng) → trả về default values.
  */
 export async function loadUserProfile(uid: string): Promise<UserProfile> {
   try {
-    const remote = await fetchProfileFromFirestore(uid)
+    const remote = await fetchProfileFromCloud(uid)
     if (remote) {
       writeProfileCache(uid, remote)
       return remote
     }
-    // Firestore chưa có document (lần đầu login) — check cache rồi dùng default
+    // Chưa có document (lần đầu login) — check cache rồi dùng default
     const cached = readProfileCache(uid)
     return cached ?? { factoryInfo: DEFAULT_FACTORY_INFO, defaultNotes: DEFAULT_NOTES }
   } catch {
-    // Mất mạng hoặc lỗi Firestore — fallback sang cache
+    // Mất mạng hoặc lỗi — fallback sang cache
     const cached = readProfileCache(uid)
     return cached ?? { factoryInfo: DEFAULT_FACTORY_INFO, defaultNotes: DEFAULT_NOTES }
   }
 }
 
 /**
- * Lưu profile lên Firestore (cloud only).
- * Caller phải đã ghi cache (writeProfileCache) trước khi gọi.
+ * Lưu profile lên Cloud (Google Sheet).
  * Thường được gọi qua debounce timer.
  */
-export async function saveProfileToCloud(uid: string, profile: UserProfile): Promise<void> {
-  await saveProfileToFirestore(uid, profile)
+export async function saveProfileToCloud(uid: string, profile: UserProfile, email: string = ''): Promise<void> {
+  await saveProfileToCloudEndpoint(uid, profile, email)
 }
 
 /**
- * Lưu profile (cả Firestore lẫn cache).
- * Ghi LocalStorage ngay, ghi Firestore bất đồng bộ.
+ * Lưu profile (cả Cloud lẫn cache).
+ * Ghi LocalStorage ngay, ghi Cloud bất đồng bộ.
  */
-export async function saveUserProfile(uid: string, profile: UserProfile): Promise<void> {
+export async function saveUserProfile(uid: string, profile: UserProfile, email: string = ''): Promise<void> {
   writeProfileCache(uid, profile) // Ghi cache ngay — UX không chờ mạng
-  await saveProfileToFirestore(uid, profile) // Ghi cloud
+  await saveProfileToCloudEndpoint(uid, profile, email) // Ghi cloud
 }
