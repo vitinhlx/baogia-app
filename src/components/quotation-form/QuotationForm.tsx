@@ -15,9 +15,7 @@ import { onAuthStateChanged } from 'firebase/auth'
 // import { collection, addDoc, getDocs, query } from 'firebase/firestore'
 import FirebaseAuthButton from '@/components/quotation-form/FirebaseAuthButton'
 import { toast, ToastContainer } from '@/components/quotation-form/Toast'
-import MaterialSelector from '@/components/quotation-form/MaterialSelector'
 import TemplatePicker from '@/components/quotation-form/TemplatePicker'
-import type { Material } from '@/data/materials'
 import {
   DEFAULT_FACTORY_INFO,
   DEFAULT_NOTES,
@@ -150,18 +148,7 @@ export default function QuotationForm() {
     }
   }, [])
 
-  // Material Selection Handler
-  const handleMaterialSelect = (material: Material) => {
-    const fullDescription = `${material.brand} ${material.code} - ${material.name}`
-    setDescription(fullDescription)
-    if (material.defaultPrice) {
-      setUnitPrice(material.defaultPrice.toString())
-    }
-    // Auto set unit if it's a board
-    if (material.category === 'full' || material.category === 'core') {
-      setUnit('Tấm')
-    }
-  }
+
 
   // Apply built-in template
   const applyBuiltInTemplate = (templateItems: Omit<QuotationItem, 'id'>[]) => {
@@ -509,34 +496,33 @@ export default function QuotationForm() {
   return (
     <div className="max-w-6xl mx-auto p-4 md:p-8 space-y-8 bg-white shadow-lg rounded-xl min-h-screen">
       <ToastContainer />
-      {/* Header section */}
-      <div className="flex flex-col items-center text-center space-y-4 border-b pb-6">
-        <h1 className="text-3xl font-extrabold text-slate-800 uppercase tracking-tight">{pageTitle}</h1>
-        <div className="w-full flex flex-col md:flex-row justify-between items-center md:items-start text-sm text-slate-600 gap-4">
-          <div className="text-left space-y-1">
-            <p className="font-bold text-slate-900">{factoryName}</p>
-            <p>{factoryAddress}</p>
-            <p>{factoryHotline}</p>
-            <p>{factoryEmail}</p>
-          </div>
-          <div className="flex items-center gap-2 shrink-0 print:hidden">
-            <FirebaseAuthButton variant="header" />
-            <Button variant="outline" size="sm" onClick={startEditingFactory}>
-              Sửa thông tin xưởng
-            </Button>
-          </div>
+      {/* Header section — centered compact layout for print */}
+      <div className="text-center border-b-2 border-slate-800 pb-3 space-y-1">
+        <h2 className="text-lg md:text-xl font-bold text-slate-900 uppercase leading-tight">{factoryName}</h2>
+        <div className="text-xs text-slate-600 space-y-0">
+          <p>{factoryAddress}</p>
+          <p>{factoryHotline} | {factoryEmail}</p>
+        </div>
+        <h1 className="text-xl md:text-2xl font-black text-slate-800 uppercase tracking-tight leading-tight pt-2">{pageTitle}</h1>
+        <p className="text-[11px] text-slate-500">Ngày: {new Date().toLocaleDateString('vi-VN')}</p>
+        <div className="flex items-center justify-center gap-2 mt-2 print:hidden">
+          <FirebaseAuthButton variant="header" />
+          <Button variant="outline" size="sm" onClick={startEditingFactory} className="h-7 text-xs">
+            Sửa thông tin
+          </Button>
         </div>
       </div>
 
       {/* Form section */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 bg-slate-50 p-6 rounded-lg border print:hidden">
-        <div className="md:col-span-2 relative">
-          <Label htmlFor="description" className="mb-2 block">Mô tả chi tiết / Vật liệu</Label>
-          <MaterialSelector 
+        <div className="md:col-span-2">
+          <Label htmlFor="description" className="mb-2 block">Mô tả chi tiết</Label>
+          <Input
+            id="description"
             value={description}
-            onSelect={handleMaterialSelect}
-            onInputChange={setDescription}
-            placeholder="Nhập mô tả hoặc tìm vật liệu (An Cường, Ba Thanh...)"
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="VD: Bếp trên MDF chống ẩm phủ Melamine..."
+            className="w-full h-12"
           />
         </div>
         
@@ -640,26 +626,26 @@ export default function QuotationForm() {
         </Table>
       </div>
 
-      {/* Summary section */}
-      <div className="flex flex-col md:flex-row justify-between items-start gap-8 py-6 border-t font-semibold">
-        <div className="flex-1 space-y-4">
+      {/* Summary section — compact for print */}
+      <div className="flex flex-col md:flex-row justify-between items-start gap-4 py-3 border-t">
+        <div className="flex-1 space-y-2">
           <div className="flex justify-between items-center">
-            <h2 className="text-lg font-bold text-slate-800">Ghi chú & Chính sách:</h2>
-            <Button variant="link" size="sm" onClick={startEditingNotes} className="print:hidden">Chỉnh sửa</Button>
+            <h2 className="text-sm font-bold text-slate-800">Ghi chú & Chính sách:</h2>
+            <Button variant="link" size="sm" onClick={startEditingNotes} className="print:hidden text-xs h-6">Chỉnh sửa</Button>
           </div>
-          <ul className="list-disc list-inside space-y-2 text-sm text-slate-600 leading-relaxed pl-4">
+          <ul className="list-disc list-inside space-y-0.5 text-xs text-slate-600 leading-relaxed pl-2">
             {editableNotes.map((note, index) => (
               <li key={index}>{note}</li>
             ))}
           </ul>
         </div>
 
-        <div className="w-full md:w-96 p-6 bg-slate-900 text-white rounded-xl shadow-inner space-y-4">
-          <div className="flex justify-between items-baseline border-b border-slate-700 pb-4">
-            <span className="text-slate-400 uppercase text-xs tracking-wider">Tổng cộng</span>
-            <span className="text-3xl font-black text-amber-400">{totalAmount.toLocaleString('vi-VN')} đ</span>
+        <div className="w-full md:w-80 p-4 bg-slate-900 text-white rounded-lg shadow-inner space-y-2">
+          <div className="flex justify-between items-baseline border-b border-slate-700 pb-2">
+            <span className="text-slate-400 uppercase text-[10px] tracking-wider">Tổng cộng</span>
+            <span className="text-2xl font-black text-amber-400">{totalAmount.toLocaleString('vi-VN')} đ</span>
           </div>
-          <p className="text-xs italic text-slate-400 leading-normal">Bằng chữ: <span className="text-slate-200 capitalize">{numberToVietnameseWords(totalAmount)}</span></p>
+          <p className="text-[10px] italic text-slate-400 leading-normal">Bằng chữ: <span className="text-slate-200 capitalize">{numberToVietnameseWords(totalAmount)}</span></p>
         </div>
       </div>
 
