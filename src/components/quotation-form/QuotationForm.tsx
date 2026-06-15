@@ -37,9 +37,10 @@ type QuotationItem = {
   note: string
 }
 
-type QuotationTemplateLocal = {
+type QuotationTemplateCloud = {
   name: string
   items: QuotationItem[]
+  createdAt: string
 }
 
 // Fixed suggestions and defaults
@@ -56,7 +57,7 @@ export default function QuotationForm() {
   const [editingItem, setEditingItem] = useState<QuotationItem | null>(null)
   
   // Storage states
-  const [templates, setTemplates] = useState<QuotationTemplateLocal[]>([])
+  const [templates, setTemplates] = useState<QuotationTemplateCloud[]>([])
   const [templateName, setTemplateName] = useState('')
   
   const [editableNotes, setEditableNotes] = useState<string[]>(DEFAULT_NOTES)
@@ -85,12 +86,6 @@ export default function QuotationForm() {
   const [tempFactoryAddress, setTempFactoryAddress] = useState('')
   const [tempFactoryHotline, setTempFactoryHotline] = useState('')
   const [tempFactoryEmail, setTempFactoryEmail] = useState('')
-
-  // Load templates from LocalStorage on mount (templates vẫn local-only)
-  useEffect(() => {
-    const savedTemplates = localStorage.getItem('quotationTemplates')
-    if (savedTemplates) setTemplates(JSON.parse(savedTemplates))
-  }, [])
 
   // Hàm áp dụng profile lên UI state
   const applyProfile = useCallback((profile: UserProfile) => {
@@ -125,6 +120,15 @@ export default function QuotationForm() {
     })
     return () => unsub()
   }, [applyProfile])
+
+  // Tự động tải danh sách báo giá Cloud khi uid thay đổi (đăng nhập thành công)
+  useEffect(() => {
+    if (uid) {
+      loadQuotationsFromCloud()
+    } else {
+      setTemplates([])
+    }
+  }, [uid])
 
   /** Debounce cloud sync 1.5s — cache đã được ghi ngay tại saveNotes/saveFactory */
   const debouncedSaveProfile = useCallback(
@@ -218,18 +222,7 @@ export default function QuotationForm() {
     setItems(updatedItems)
   }
 
-  // Template Handlers
-  const saveTemplate = () => {
-    if (templateName && items.length > 0) {
-      const newTemplate: QuotationTemplateLocal = { name: templateName, items }
-      const updatedTemplates = [...templates, newTemplate]
-      setTemplates(updatedTemplates)
-      localStorage.setItem('quotationTemplates', JSON.stringify(updatedTemplates))
-      setTemplateName('')
-    }
-  }
-
-  const loadTemplate = (template: QuotationTemplateLocal) => {
+  const loadTemplate = (template: QuotationTemplateCloud) => {
     const updatedItems = template.items.map((item, index) => ({
       ...item,
       id: index + 1
@@ -237,11 +230,6 @@ export default function QuotationForm() {
     setItems(updatedItems)
   }
 
-  const deleteTemplate = (name: string) => {
-    const updatedTemplates = templates.filter(t => t.name !== name)
-    setTemplates(updatedTemplates)
-    localStorage.setItem('quotationTemplates', JSON.stringify(updatedTemplates))
-  }
 
   // ------------------------------------------------
   // Cloud sync functions (Google Sheets via Apps Script)
@@ -279,6 +267,7 @@ export default function QuotationForm() {
       });
       toast.dismiss(loadingId)
       toast.success(`Đã lưu "${quotationName}" vào Cloud!`)
+      await loadQuotationsFromCloud()
     } catch (e) {
       console.error(e)
       toast.dismiss(loadingId)
@@ -298,17 +287,15 @@ export default function QuotationForm() {
       const json = await res.json()
       if (json.success && json.data) {
         const cloudTemplates = json.data.map((doc: any) => ({
-          name: `[Cloud] ${doc.name || doc.customer || 'Báo giá không tên'} - ${new Date(doc.createdAt).toLocaleDateString('vi-VN')}`,
-          items: doc.items
+          name: `${doc.name || doc.customer || 'Báo giá không tên'} - ${new Date(doc.createdAt).toLocaleDateString('vi-VN')}`,
+          items: doc.items,
+          createdAt: doc.createdAt
         }))
         
-        setTemplates(prev => {
-          const localTemplates = prev.filter(t => !t.name.startsWith('[Cloud]'))
-          return [...localTemplates, ...cloudTemplates]
-        })
+        setTemplates(cloudTemplates)
         
         toast.dismiss(loadingId)
-        toast.success(`Đã tải ${json.data.length} báo giá! Mở "Tải mẫu" để xem.`)
+        toast.success(`Đã tải ${json.data.length} báo giá! Mở "Tải mẫu Cloud" để xem.`)
       } else {
         throw new Error('Failed to load')
       }
@@ -316,6 +303,37 @@ export default function QuotationForm() {
       console.error(e)
       toast.dismiss(loadingId)
       toast.error('Lỗi tải báo giá từ Cloud. Vui lòng thử lại.')
+    }
+  }
+
+  const deleteQuotationFromCloud = async (createdAt: string) => {
+    if (!uid) {
+      toast.error('Vui lòng đăng nhập để xóa báo giá.')
+      return
+    }
+    const loadingId = toast.loading('Đang xóa báo giá trên Cloud...')
+    try {
+      const res = await fetch(APPS_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'deleteQuotation',
+          uid,
+          createdAt
+        })
+      })
+      const json = await res.json()
+      toast.dismiss(loadingId)
+      if (json.success) {
+        toast.success('Đã xóa báo giá thành công!')
+        await loadQuotationsFromCloud()
+      } else {
+        toast.error(json.message || 'Xóa báo giá thất bại. Vui lòng thử lại.')
+      }
+    } catch (e) {
+      console.error(e)
+      toast.dismiss(loadingId)
+      toast.error('Lỗi kết nối hoặc API chưa được cập nhật. Vui lòng thử lại.')
     }
   }
 
@@ -656,25 +674,24 @@ export default function QuotationForm() {
           <div className="flex items-center gap-2 flex-1 min-w-0 bg-slate-50 p-1 pl-3 rounded-md border">
             <FolderOpen className="w-4 h-4 text-slate-400 shrink-0" />
             <Input
-              placeholder="Tên mẫu báo giá..."
+              placeholder="Nhập tên báo giá..."
               value={templateName}
               onChange={(e) => setTemplateName(e.target.value)}
               className="border-none bg-transparent focus-visible:ring-0 min-w-0 w-full"
             />
           </div>
-          <Button size="sm" onClick={saveTemplate} variant="ghost" className="hover:bg-white shadow-sm border shrink-0"><Save className="w-4 h-4 mr-2" />Lưu mẫu</Button>
           <Dialog>
             <DialogTrigger>
-              <span className="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium h-9 px-3 rounded-md border shadow-sm hover:bg-white cursor-pointer shrink-0"><FolderOpen className="w-4 h-4" />Tải mẫu</span>
+              <span className="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium h-9 px-3 rounded-md border shadow-sm hover:bg-white cursor-pointer shrink-0"><FolderOpen className="w-4 h-4" />Tải mẫu Cloud</span>
             </DialogTrigger>
             <DialogContent className="max-w-md">
-              <DialogHeader><DialogTitle>Danh sách mẫu đã lưu</DialogTitle></DialogHeader>
-              {templates.length === 0 ? <p className="text-center py-8 text-slate-400">Bạn chưa có mẫu nào.</p> : (
+              <DialogHeader><DialogTitle>Danh sách báo giá trên Cloud</DialogTitle></DialogHeader>
+              {templates.length === 0 ? <p className="text-center py-8 text-slate-400">Chưa có báo giá nào trên Cloud hoặc bạn chưa đăng nhập.</p> : (
                 <div className="space-y-2 max-h-96 overflow-y-auto pr-2">
                   {templates.map((t, idx) => (
                     <div key={idx} className="flex justify-between items-center p-3 border rounded-lg hover:bg-slate-50 group">
-                      <Button variant="ghost" className="flex-1 justify-start font-medium" onClick={() => loadTemplate(t)}>{t.name}</Button>
-                      <Button variant="ghost" size="icon" onClick={() => deleteTemplate(t.name)} className="text-slate-300 group-hover:text-red-500"><Trash2 className="w-4 h-4" /></Button>
+                      <Button variant="ghost" className="flex-1 justify-start font-medium text-left truncate" onClick={() => loadTemplate(t)}>{t.name}</Button>
+                      <Button variant="ghost" size="icon" onClick={() => deleteQuotationFromCloud(t.createdAt)} className="text-slate-300 group-hover:text-red-500"><Trash2 className="w-4 h-4" /></Button>
                     </div>
                   ))}
                 </div>
